@@ -102,6 +102,27 @@ const TYPE_COLORS = {
     "default": "#8B5CF6" // Purple
 };
 
+// Province (시도) data with center coordinates and colors
+const PROVINCES = [
+    { name: "서울특별시", center: [37.5665, 126.9780], zoom: 11, color: "#ef4444" },
+    { name: "부산광역시", center: [35.1796, 129.0756], zoom: 11, color: "#f97316" },
+    { name: "대구광역시", center: [35.8714, 128.6014], zoom: 11, color: "#eab308" },
+    { name: "인천광역시", center: [37.4563, 126.7052], zoom: 11, color: "#84cc16" },
+    { name: "광주광역시", center: [35.1595, 126.8526], zoom: 11, color: "#22c55e" },
+    { name: "대전광역시", center: [36.3504, 127.3845], zoom: 11, color: "#14b8a6" },
+    { name: "울산광역시", center: [35.5384, 129.3114], zoom: 11, color: "#06b6d4" },
+    { name: "세종특별자치시", center: [36.4800, 127.2890], zoom: 11, color: "#0ea5e9" },
+    { name: "경기도", center: [37.4138, 127.5183], zoom: 9, color: "#3b82f6" },
+    { name: "강원도", center: [37.8228, 128.1555], zoom: 8, color: "#6366f1" },
+    { name: "충청북도", center: [36.6357, 127.4912], zoom: 9, color: "#8b5cf6" },
+    { name: "충청남도", center: [36.5184, 126.8000], zoom: 9, color: "#a855f7" },
+    { name: "전라북도", center: [35.8203, 127.1088], zoom: 9, color: "#d946ef" },
+    { name: "전라남도", center: [34.8679, 126.9910], zoom: 9, color: "#ec4899" },
+    { name: "경상북도", center: [36.4919, 128.8889], zoom: 8, color: "#f43f5e" },
+    { name: "경상남도", center: [35.2383, 128.6922], zoom: 9, color: "#10b981", hasData: true },
+    { name: "제주특별자치도", center: [33.4890, 126.4983], zoom: 10, color: "#f59e0b" }
+];
+
 const KoreaMapTool = () => {
     // --- State ---
     const [isLeafletLoaded, setIsLeafletLoaded] = useState(false);
@@ -111,6 +132,7 @@ const KoreaMapTool = () => {
     // Data State (Supports upload)
     const [allData, setAllData] = useState(INSTITUTION_DATA);
 
+    const [selectedProvince, setSelectedProvince] = useState(null); // Selected province (시도)
     const [selectedDistricts, setSelectedDistricts] = useState([]); // Array of selected district names. Empty = ALL
     const [selectedStructureType, setSelectedStructureType] = useState([]); // Array of selected types
     const [searchTerm, setSearchTerm] = useState("");
@@ -281,7 +303,7 @@ const KoreaMapTool = () => {
             const map = L.map(mapContainerRef.current, {
                 zoomControl: false,
                 attributionControl: false
-            }).setView([35.2383, 128.6922], 9); // Centered on Gyeongnam
+            }).setView([36.0, 127.8], 7); // Centered on Korea
 
             L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
                 attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
@@ -317,10 +339,13 @@ const KoreaMapTool = () => {
 
         if (districtLayerRef.current) map.removeLayer(districtLayerRef.current);
 
-        const gyeongnamFeatures = districtGeoJsonData.features.filter(
-            f => f.properties.code && f.properties.code.startsWith('38')
-        );
+        // Use all features, or at least include non-Gyeongnam ones for context
+        // But for performance with this specific file (simple), using all features is fine.
+        // However, we still want to emphasize Gyeongnam.
 
+        const allFeatures = districtGeoJsonData.features;
+
+        // Find Gyeongnam district name from code
         const findDistrictName = (code) => {
             for (const [name, data] of Object.entries(GYEONGNAM_DISTRICTS)) {
                 if (Array.isArray(data.code) ? data.code.includes(code) : data.code === code) return name;
@@ -328,26 +353,85 @@ const KoreaMapTool = () => {
             return null;
         };
 
-        // Render Layer
-        districtLayerRef.current = L.geoJSON({ type: 'FeatureCollection', features: gyeongnamFeatures }, {
-            style: (feature) => {
-                const name = findDistrictName(feature.properties.code);
-                const isSelected = selectedDistricts.length === 0 || selectedDistricts.includes(name);
-                // If specific districts are selected, dim others more
-                const isAnySelected = selectedDistricts.length > 0;
+        // Find province name from feature properties
+        const findProvinceName = (feature) => {
+            const name = feature.properties.name || '';
+            // Match province by name prefix
+            for (const province of PROVINCES) {
+                if (name.includes(province.name.replace(/특별시|광역시|특별자치시|특별자치도|도/g, '').substring(0, 2))) {
+                    return province.name;
+                }
+            }
+            // Fallback: check by code prefix
+            const code = feature.properties.code || '';
+            const codePrefix = code.substring(0, 2);
+            const provinceCodeMap = {
+                '11': '서울특별시', '21': '부산광역시', '22': '대구광역시', '23': '인천광역시',
+                '24': '광주광역시', '25': '대전광역시', '26': '울산광역시', '29': '세종특별자치시',
+                '31': '경기도', '32': '강원도', '33': '충청북도', '34': '충청남도',
+                '35': '전라북도', '36': '전라남도', '37': '경상북도', '38': '경상남도',
+                '39': '제주특별자치도'
+            };
+            return provinceCodeMap[codePrefix] || null;
+        };
 
+        // Render Layer
+        districtLayerRef.current = L.geoJSON({ type: 'FeatureCollection', features: allFeatures }, {
+            style: (feature) => {
+                const gyeongnamDistrict = findDistrictName(feature.properties.code);
+                const provinceName = findProvinceName(feature);
+                const isGyeongnam = provinceName === '경상남도';
+
+                // Find province color
+                const province = PROVINCES.find(p => p.name === provinceName);
+                const provinceColor = province?.color || '#e2e8f0';
+
+                // If Gyeongnam is selected, show district-level details
+                if (selectedProvince === '경상남도' && isGyeongnam) {
+                    const isDistrictSelected = selectedDistricts.length === 0 ||
+                        (gyeongnamDistrict && selectedDistricts.includes(gyeongnamDistrict));
+                    return {
+                        fillColor: gyeongnamDistrict ? (GYEONGNAM_DISTRICTS[gyeongnamDistrict]?.color || '#eee') : '#f1f5f9',
+                        fillOpacity: isDistrictSelected ? 0.7 : 0.2,
+                        color: '#64748b',
+                        weight: isDistrictSelected && selectedDistricts.length > 0 ? 2 : 1,
+                        opacity: 0.7
+                    };
+                }
+
+                // If a province is selected (not Gyeongnam), highlight it
+                if (selectedProvince && selectedProvince !== '경상남도') {
+                    const isThisProvinceSelected = provinceName === selectedProvince;
+                    return {
+                        fillColor: isThisProvinceSelected ? provinceColor : '#f1f5f9',
+                        fillOpacity: isThisProvinceSelected ? 0.7 : 0.15,
+                        color: isThisProvinceSelected ? provinceColor : '#e2e8f0',
+                        weight: isThisProvinceSelected ? 2 : 0.5,
+                        opacity: isThisProvinceSelected ? 1 : 0.3
+                    };
+                }
+
+                // Default: show all provinces with their colors
                 return {
-                    fillColor: GYEONGNAM_DISTRICTS[name]?.color || '#eee',
-                    fillOpacity: isSelected ? 0.6 : 0.1,
+                    fillColor: provinceColor,
+                    fillOpacity: 0.5,
                     color: '#94a3b8',
-                    weight: isSelected && isAnySelected ? 2 : 1, // Highlight border if selected
-                    opacity: 0.5
+                    weight: 1,
+                    opacity: 0.6
                 };
             },
             onEachFeature: (feature, layer) => {
+                const provinceName = findProvinceName(feature);
+                const gyeongnamDistrict = findDistrictName(feature.properties.code);
+
                 layer.on('click', () => {
-                    const name = findDistrictName(feature.properties.code);
-                    if (name) toggleDistrictFilter(name);
+                    // If in Gyeongnam detail mode, toggle district filter
+                    if (selectedProvince === '경상남도' && gyeongnamDistrict) {
+                        toggleDistrictFilter(gyeongnamDistrict);
+                    } else if (provinceName) {
+                        // Otherwise, select the province
+                        setSelectedProvince(prev => prev === provinceName ? null : provinceName);
+                    }
                 });
             }
         }).addTo(map);
@@ -355,13 +439,25 @@ const KoreaMapTool = () => {
         districtLayerRef.current.bringToBack();
 
         // Zoom Logic
-        if (searchTerm && filteredData.length > 0) {
+        if (selectedEntity) {
+            // Do NOT change zoom if an entity is selected (user might be exploring)
+            // or keep it centered on entity if that logic is elsewhere.
+            // Actually, the user asked "maintain clicked screen".
+            // We should skip auto-zoom here if selectedEntity is present BUT 
+            // we usually want to zoom to the entity when it is clicked.
+            // The issue is likely that this useEffect runs when selectedDistricts/searchTerm changes OR when filteredData changes.
+            // Since filteredData is memoized now, stable.
+            // But if selectedEntity changes, we might not want to re-run this ENTIRE effect if we can help it.
+            // However, selectedEntity is NOT in the dependency array of THIS useEffect.
+            // So this effect only runs on [districtGeoJsonData, selectedDistricts, searchTerm, filteredData].
+            // If filteredData changes (e.g. search), we re-zoom. This is desired.
+        } else if (searchTerm && filteredData.length > 0) {
             // If searching, fit bounds to the results (markers)
             const bounds = L.latLngBounds(filteredData.map(d => [d.lat, d.lng]));
             map.fitBounds(bounds, { padding: [50, 50], animate: true, duration: 0.5 });
         } else if (selectedDistricts.length > 0) {
             // If districts selected (and no active search overriding it), fit to districts
-            const targetFeatures = gyeongnamFeatures.filter(f => {
+            const targetFeatures = allFeatures.filter(f => {
                 const name = findDistrictName(f.properties.code);
                 return selectedDistricts.includes(name);
             });
@@ -371,11 +467,22 @@ const KoreaMapTool = () => {
                 map.fitBounds(group.getBounds(), { padding: [50, 50], animate: true, duration: 0.5 });
             }
         } else {
-            // Reset view to Gyeongnam
-            map.setView([35.2383, 128.6922], 9, { animate: true, duration: 0.5 });
+            // Reset view
+            // If we want to show whole Korea, we might zoom out more, e.g. zoom 7
+            // But user focuses on Gyeongnam usually.
+            // Let's stick to Gyeongnam center but allow panning out.
+            // map.setView([35.2383, 128.6922], 9, { animate: true, duration: 0.5 });
+            // Actually, if "Korea Map is not visible", maybe we should zoom out a bit initially or just ensure it's pannable.
+            // It is pannable. The issue was they were HIDDEN.
+            // Now that we render `allFeatures`, they should be visible.
+
+            // Check current center logic.
+            // If we are just "resetting", 9 is fine for Gyeongnam.
+            // If the user wants to see the whole country initially, 7 is better.
+            // map.setView([36.5, 127.5], 7); // Approx center of Korea
         }
 
-    }, [districtGeoJsonData, selectedDistricts, searchTerm, filteredData]);
+    }, [districtGeoJsonData, selectedDistricts, searchTerm, filteredData, selectedProvince]);
 
     // --- 5. Render Institution Markers ---
     useEffect(() => {
@@ -650,10 +757,19 @@ const KoreaMapTool = () => {
                             </button>
                         </div>
                     </div>
-                ) : (
+                ) : selectedProvince === "경상남도" ? (
                     <div className="w-80 bg-white border-l border-gray-200 hidden md:flex flex-col shrink-0 z-10">
-                        <div className="p-4 border-b border-gray-100">
+                        <div className="p-4 border-b border-gray-100 flex justify-between items-center">
                             <h2 className="text-sm font-bold text-slate-700">기관 목록 ({filteredData.length})</h2>
+                            <button
+                                onClick={() => {
+                                    setSelectedProvince(null);
+                                    if (mapInstanceRef.current) mapInstanceRef.current.setView([36.0, 127.8], 7);
+                                }}
+                                className="text-xs text-indigo-600 hover:text-indigo-800"
+                            >
+                                ← 시도 선택
+                            </button>
                         </div>
                         <div className="flex-1 overflow-y-auto p-2 space-y-2 custom-scrollbar">
                             {filteredData.map(item => (
@@ -661,7 +777,6 @@ const KoreaMapTool = () => {
                                     key={item.id}
                                     onClick={() => {
                                         setSelectedEntity(item);
-                                        // Optional: Zoom to item
                                         if (mapInstanceRef.current) mapInstanceRef.current.setView([item.lat, item.lng], 13);
                                     }}
                                     className="p-3 bg-white border border-gray-100 rounded-lg hover:border-indigo-300 hover:shadow-md cursor-pointer transition-all active:scale-[0.98]"
@@ -683,6 +798,39 @@ const KoreaMapTool = () => {
                                     검색 결과가 없습니다.
                                 </div>
                             )}
+                        </div>
+                    </div>
+                ) : (
+                    <div className="w-80 bg-white border-l border-gray-200 hidden md:flex flex-col shrink-0 z-10">
+                        <div className="p-4 border-b border-gray-100">
+                            <h2 className="text-sm font-bold text-slate-700">시도 선택</h2>
+                            <p className="text-xs text-gray-400 mt-1">지역을 선택하세요</p>
+                        </div>
+                        <div className="flex-1 overflow-y-auto p-3 space-y-2 custom-scrollbar">
+                            {PROVINCES.map(province => (
+                                <div
+                                    key={province.name}
+                                    onClick={() => {
+                                        setSelectedProvince(province.name);
+                                        if (mapInstanceRef.current) {
+                                            mapInstanceRef.current.setView(province.center, province.zoom);
+                                        }
+                                    }}
+                                    className={`p-3 rounded-lg border cursor-pointer transition-all active:scale-[0.98] ${province.hasData
+                                        ? 'bg-indigo-50 border-indigo-200 hover:border-indigo-400 hover:shadow-md'
+                                        : 'bg-gray-50 border-gray-200 hover:bg-gray-100'
+                                        }`}
+                                >
+                                    <div className="flex justify-between items-center">
+                                        <span className={`text-sm font-bold ${province.hasData ? 'text-indigo-700' : 'text-gray-600'}`}>
+                                            {province.name}
+                                        </span>
+                                        {province.hasData && (
+                                            <span className="text-[10px] bg-indigo-600 text-white px-2 py-0.5 rounded-full">데이터 있음</span>
+                                        )}
+                                    </div>
+                                </div>
+                            ))}
                         </div>
                     </div>
                 )}

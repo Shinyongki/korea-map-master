@@ -23,17 +23,7 @@ const DISTRICT_CENTERS = {
 
 // Raw Data from CSV (Parsed)
 const RAW_DATA = [
-    {
-        "district": "광역지원기관",
-        "name": "(재)경상남도 사회서비스원",
-        "type": "사회서비스원",
-        "address": "경남 창원시 성산구 창원대로524",
-        "phone": "055-288-6892",
-        "leader": "조철현",
-        "staff_assigned": 0,
-        "target_assigned": 0,
-        "social_worker_assigned": 5
-    },
+    // (재)경상남도 사회서비스원 removed as per request
     {
         "district": "거제시",
         "name": "거제노인통합지원센터",
